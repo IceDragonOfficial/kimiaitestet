@@ -1,0 +1,966 @@
+// Velixo Platform - Prisma Şeması (LeaderOS Birebir Klon)
+// Tüm 45 modül dahil
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ══════════════════════════════════════
+// KULLANICI & KİMLİK DOĞRULAMA
+// ══════════════════════════════════════
+
+model User {
+  id              String    @id @default(uuid())
+  username        String    @unique
+  email           String    @unique
+  passwordHash    String
+  avatar          String?
+  credits         Float     @default(0)
+  emailVerified   Boolean   @default(false)
+  twoFactorSecret String?
+  twoFactorEnabled Boolean  @default(false)
+  locale          String    @default("tr")
+  currency        String    @default("TRY")
+  isBanned        Boolean   @default(false)
+  banReason       String?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  roleId          String?
+  role            Role?     @relation(fields: [roleId], references: [id])
+
+  sessions        Session[]
+  orders          StoreOrder[]
+  tickets         Ticket[]
+  ticketReplies   TicketReply[]
+  forumTopics     ForumTopic[]
+  forumPosts      ForumPost[]
+  blogComments    BlogComment[]
+  punishments     Punishment[]    @relation("PunishedUser")
+  punishmentsGiven Punishment[]   @relation("PunisherUser")
+  playerLinks     PlayerLink[]
+  creditHistory   CreditHistory[]
+  bazaarItems     BazaarItem[]
+  suggestions     Suggestion[]
+  suggestionVotes SuggestionVote[]
+  gameNightRegs   GameNightRegistration[]
+  wheelSpins      WheelSpin[]
+  votes           Vote[]
+  giftCodeUses    GiftCodeUsage[]
+  formSubmissions FormSubmission[]
+  notifications   Notification[]
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  displayName String
+  color       String   @default("#ffffff")
+  priority    Int      @default(0)
+  isDefault   Boolean  @default(false)
+  permissions String[] @default([])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       User[]
+
+  @@map("roles")
+}
+
+model Session {
+  id           String   @id @default(uuid())
+  userId       String
+  refreshToken String   @unique
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+// ══════════════════════════════════════
+// LİSANS SİSTEMİ
+// ══════════════════════════════════════
+
+model License {
+  id              String        @id @default(uuid())
+  licenseKey      String        @unique
+  domain          String?
+  status          LicenseStatus @default(ACTIVE)
+  isLifetime      Boolean       @default(false)
+  expiresAt       DateTime?
+  lastCheckedAt   DateTime?
+  domainChangesUsed Int         @default(0)
+  domainChangeYear  Int?
+  customerEmail   String
+  customerName    String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@map("licenses")
+}
+
+enum LicenseStatus {
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+// ══════════════════════════════════════
+// TEMA SİSTEMİ
+// ══════════════════════════════════════
+
+model Theme {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  version     String   @default("1.0.0")
+  author      String?
+  thumbnail   String?
+  zipPath     String?
+  isActive    Boolean  @default(false)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  settings    ThemeSetting[]
+
+  @@map("themes")
+}
+
+model ThemeSetting {
+  id       String @id @default(uuid())
+  themeId  String
+  key      String
+  value    String
+  theme    Theme  @relation(fields: [themeId], references: [id], onDelete: Cascade)
+
+  @@unique([themeId, key])
+  @@map("theme_settings")
+}
+
+// ══════════════════════════════════════
+// MAĞAZA (STORE)
+// ══════════════════════════════════════
+
+model StoreCategory {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  sortOrder   Int      @default(0)
+  isVisible   Boolean  @default(true)
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  parent      StoreCategory?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children    StoreCategory[] @relation("CategoryTree")
+  products    StoreProduct[]
+
+  @@map("store_categories")
+}
+
+model StoreProduct {
+  id            String   @id @default(uuid())
+  name          String
+  slug          String   @unique
+  description   String?
+  image         String?
+  price         Float
+  salePrice     Float?
+  stock         Int?
+  purchaseLimit Int?
+  commands      String[] @default([])
+  duration      Int?
+  isVisible     Boolean  @default(true)
+  sortOrder     Int      @default(0)
+  categoryId    String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  category      StoreCategory @relation(fields: [categoryId], references: [id])
+  orderItems    StoreOrderItem[]
+
+  @@map("store_products")
+}
+
+model StoreCoupon {
+  id            String    @id @default(uuid())
+  code          String    @unique
+  discountType  String    @default("PERCENT")
+  discountValue Float
+  minAmount     Float?
+  maxUses       Int?
+  usedCount     Int       @default(0)
+  expiresAt     DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  @@map("store_coupons")
+}
+
+model StoreOrder {
+  id          String      @id @default(uuid())
+  userId      String
+  status      OrderStatus @default(PENDING)
+  totalAmount Float
+  currency    String      @default("TRY")
+  gateway     String?
+  gatewayTxId String?
+  couponCode  String?
+  ipAddress   String?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id])
+  items       StoreOrderItem[]
+
+  @@map("store_orders")
+}
+
+model StoreOrderItem {
+  id        String @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int    @default(1)
+  price     Float
+  delivered Boolean @default(false)
+
+  order     StoreOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   StoreProduct @relation(fields: [productId], references: [id])
+
+  @@map("store_order_items")
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  DELIVERED
+  REFUNDED
+  CANCELLED
+}
+
+// ══════════════════════════════════════
+// FORUM
+// ══════════════════════════════════════
+
+model ForumCategory {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  sortOrder Int      @default(0)
+  isVisible Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  boards    ForumBoard[]
+
+  @@map("forum_categories")
+}
+
+model ForumBoard {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  sortOrder   Int      @default(0)
+  isLocked    Boolean  @default(false)
+  categoryId  String
+  createdAt   DateTime @default(now())
+
+  category    ForumCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  topics      ForumTopic[]
+
+  @@map("forum_boards")
+}
+
+model ForumTopic {
+  id        String   @id @default(uuid())
+  title     String
+  slug      String   @unique
+  content   String
+  isPinned  Boolean  @default(false)
+  isLocked  Boolean  @default(false)
+  viewCount Int      @default(0)
+  boardId   String
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  board     ForumBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  author    User       @relation(fields: [authorId], references: [id])
+  posts     ForumPost[]
+
+  @@map("forum_topics")
+}
+
+model ForumPost {
+  id         String   @id @default(uuid())
+  content    String
+  isBest     Boolean  @default(false)
+  likeCount  Int      @default(0)
+  topicId    String
+  authorId   String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  topic      ForumTopic @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  author     User       @relation(fields: [authorId], references: [id])
+
+  @@map("forum_posts")
+}
+
+// ══════════════════════════════════════
+// DESTEK (TICKET)
+// ══════════════════════════════════════
+
+model TicketCategory {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  tickets   Ticket[]
+
+  @@map("ticket_categories")
+}
+
+model Ticket {
+  id          String       @id @default(uuid())
+  subject     String
+  status      TicketStatus @default(OPEN)
+  priority    String       @default("NORMAL")
+  categoryId  String
+  userId      String
+  assignedTo  String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  category    TicketCategory @relation(fields: [categoryId], references: [id])
+  user        User           @relation(fields: [userId], references: [id])
+  replies     TicketReply[]
+
+  @@map("tickets")
+}
+
+model TicketReply {
+  id         String   @id @default(uuid())
+  message    String
+  isStaff    Boolean  @default(false)
+  isInternal Boolean  @default(false)
+  attachment String?
+  ticketId   String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@map("ticket_replies")
+}
+
+enum TicketStatus {
+  OPEN
+  ANSWERED
+  WAITING
+  RESOLVED
+  CLOSED
+}
+
+// ══════════════════════════════════════
+// BLOG
+// ══════════════════════════════════════
+
+model BlogPost {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String   @unique
+  excerpt     String?
+  content     String
+  coverImage  String?
+  category    String?
+  tags        String[] @default([])
+  authorName  String
+  status      String   @default("DRAFT")
+  publishedAt DateTime?
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  comments    BlogComment[]
+
+  @@map("blog_posts")
+}
+
+model BlogComment {
+  id        String   @id @default(uuid())
+  content   String
+  isApproved Boolean @default(false)
+  postId    String
+  userId    String
+  parentId  String?
+  createdAt DateTime @default(now())
+
+  post      BlogPost     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id])
+  parent    BlogComment? @relation("CommentTree", fields: [parentId], references: [id])
+  children  BlogComment[] @relation("CommentTree")
+
+  @@map("blog_comments")
+}
+
+// ══════════════════════════════════════
+// YARDIM MERKEZİ (WIKI)
+// ══════════════════════════════════════
+
+model HelpCategory {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  icon      String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  articles  HelpArticle[]
+
+  @@map("help_categories")
+}
+
+model HelpArticle {
+  id         String   @id @default(uuid())
+  title      String
+  slug       String   @unique
+  content    String
+  categoryId String
+  viewCount  Int      @default(0)
+  helpful    Int      @default(0)
+  notHelpful Int      @default(0)
+  sortOrder  Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category   HelpCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@map("help_articles")
+}
+
+// ══════════════════════════════════════
+// CMS SAYFALARI & SLIDER & DUYURULAR
+// ══════════════════════════════════════
+
+model Page {
+  id        String   @id @default(uuid())
+  title     String
+  slug      String   @unique
+  content   String
+  metaTitle String?
+  metaDesc  String?
+  sortOrder Int      @default(0)
+  isVisible Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("pages")
+}
+
+model Slide {
+  id        String   @id @default(uuid())
+  title     String?
+  subtitle  String?
+  image     String
+  buttonText String?
+  buttonUrl  String?
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("slides")
+}
+
+model Announcement {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  type      String   @default("INFO")
+  display   String   @default("BANNER")
+  targetRole String?
+  expiresAt DateTime?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("announcements")
+}
+
+// ══════════════════════════════════════
+// LİDER TABLOLARI & ŞANS ÇARKI & PAZAR
+// ══════════════════════════════════════
+
+model Leaderboard {
+  id        String   @id @default(uuid())
+  name      String
+  type      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  entries   LeaderboardEntry[]
+
+  @@map("leaderboards")
+}
+
+model LeaderboardEntry {
+  id             String   @id @default(uuid())
+  leaderboardId  String
+  playerName     String
+  playerUuid     String?
+  value          Float    @default(0)
+  updatedAt      DateTime @updatedAt
+
+  leaderboard    Leaderboard @relation(fields: [leaderboardId], references: [id], onDelete: Cascade)
+
+  @@unique([leaderboardId, playerName])
+  @@map("leaderboard_entries")
+}
+
+model WheelSegment {
+  id          String   @id @default(uuid())
+  label       String
+  rewardType  String
+  rewardValue String
+  probability Float
+  color       String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  @@map("wheel_segments")
+}
+
+model WheelSpin {
+  id        String   @id @default(uuid())
+  userId    String
+  segmentId String?
+  result    String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("wheel_spins")
+}
+
+model BazaarItem {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Float
+  image       String?
+  status      String   @default("ACTIVE")
+  sellerId    String
+  buyerId     String?
+  soldAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  seller      User     @relation(fields: [sellerId], references: [id])
+
+  @@map("bazaar_items")
+}
+
+// ══════════════════════════════════════
+// OYLAMA & ÖNERİLER & HEDEFLER & OYUN GECESİ
+// ══════════════════════════════════════
+
+model VoteSite {
+  id        String   @id @default(uuid())
+  name      String
+  url       String
+  reward    Float    @default(0)
+  cooldown  Int      @default(86400)
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  votes     Vote[]
+
+  @@map("vote_sites")
+}
+
+model Vote {
+  id        String   @id @default(uuid())
+  userId    String
+  siteId    String
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  site      VoteSite @relation(fields: [siteId], references: [id])
+
+  @@map("votes")
+}
+
+model Suggestion {
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  category    String?
+  status      String   @default("PENDING")
+  adminReply  String?
+  upvotes     Int      @default(0)
+  downvotes   Int      @default(0)
+  userId      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user        User     @relation(fields: [userId], references: [id])
+  votes       SuggestionVote[]
+
+  @@map("suggestions")
+}
+
+model SuggestionVote {
+  id           String   @id @default(uuid())
+  suggestionId String
+  userId       String
+  voteType     String
+  createdAt    DateTime @default(now())
+
+  suggestion   Suggestion @relation(fields: [suggestionId], references: [id], onDelete: Cascade)
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@unique([suggestionId, userId])
+  @@map("suggestion_votes")
+}
+
+model Goal {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  targetAmount Float
+  currentAmount Float   @default(0)
+  reward      String?
+  endsAt      DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  @@map("goals")
+}
+
+model GameNight {
+  id             String   @id @default(uuid())
+  title          String
+  description    String?
+  gameMode       String
+  scheduledAt    DateTime
+  maxParticipants Int?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  registrations  GameNightRegistration[]
+
+  @@map("game_nights")
+}
+
+model GameNightRegistration {
+  id          String   @id @default(uuid())
+  gameNightId String
+  userId      String
+  createdAt   DateTime @default(now())
+
+  gameNight   GameNight @relation(fields: [gameNightId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([gameNightId, userId])
+  @@map("game_night_registrations")
+}
+
+// ══════════════════════════════════════
+// FORMLAR & HEDİYE KODLARI & İNDİRMELER
+// ══════════════════════════════════════
+
+model CustomForm {
+  id          String   @id @default(uuid())
+  title       String
+  slug        String   @unique
+  description String?
+  fields      Json     @default("[]")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  submissions FormSubmission[]
+
+  @@map("custom_forms")
+}
+
+model FormSubmission {
+  id        String   @id @default(uuid())
+  formId    String
+  userId    String
+  data      Json
+  status    String   @default("PENDING")
+  adminNote String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  form      CustomForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id])
+
+  @@map("form_submissions")
+}
+
+model GiftCode {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  rewardType  String
+  rewardValue String
+  maxUses     Int       @default(1)
+  usedCount   Int       @default(0)
+  perUserLimit Int      @default(1)
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  usages      GiftCodeUsage[]
+
+  @@map("gift_codes")
+}
+
+model GiftCodeUsage {
+  id        String   @id @default(uuid())
+  codeId    String
+  userId    String
+  createdAt DateTime @default(now())
+
+  code      GiftCode @relation(fields: [codeId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([codeId, userId])
+  @@map("gift_code_usages")
+}
+
+model Download {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  category    String?
+  filePath    String
+  fileSize    Int      @default(0)
+  downloadCount Int    @default(0)
+  isVisible   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@map("downloads")
+}
+
+model GameMode {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  icon        String?
+  rules       String?
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@map("game_modes")
+}
+
+// ══════════════════════════════════════
+// OYUNCU BAĞLANTILARI & CEZA & KREDİ
+// ══════════════════════════════════════
+
+model PlayerLink {
+  id        String   @id @default(uuid())
+  userId    String
+  platform  String
+  platformId String
+  platformName String?
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, platform])
+  @@unique([platform, platformId])
+  @@map("player_links")
+}
+
+model Punishment {
+  id          String    @id @default(uuid())
+  type        String
+  reason      String
+  evidence    String?
+  duration    Int?
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  userId      String
+  staffId     String
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation("PunishedUser", fields: [userId], references: [id])
+  staff       User      @relation("PunisherUser", fields: [staffId], references: [id])
+
+  @@map("punishments")
+}
+
+model CreditHistory {
+  id        String   @id @default(uuid())
+  userId    String
+  amount    Float
+  type      String
+  reason    String?
+  balanceAfter Float
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("credit_history")
+}
+
+// ══════════════════════════════════════
+// WEBHOOK & URL & POPUP & CHANGELOG
+// ══════════════════════════════════════
+
+model WebhookConfig {
+  id        String   @id @default(uuid())
+  name      String
+  url       String
+  events    String[] @default([])
+  headers   Json?
+  isActive  Boolean  @default(true)
+  type      String   @default("DISCORD")
+  botName   String?
+  botAvatar String?
+  createdAt DateTime @default(now())
+
+  logs      WebhookLog[]
+
+  @@map("webhook_configs")
+}
+
+model WebhookLog {
+  id        String   @id @default(uuid())
+  configId  String
+  event     String
+  payload   Json
+  status    Int
+  response  String?
+  createdAt DateTime @default(now())
+
+  config    WebhookConfig @relation(fields: [configId], references: [id], onDelete: Cascade)
+
+  @@map("webhook_logs")
+}
+
+model UrlRedirect {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  targetUrl String
+  type      Int      @default(302)
+  clicks    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("url_redirects")
+}
+
+model Popup {
+  id        String    @id @default(uuid())
+  title     String
+  content   String
+  type      String    @default("INFO")
+  position  String    @default("CENTER")
+  buttonText String?
+  buttonUrl  String?
+  image     String?
+  targetRole String?
+  showLimit Int       @default(1)
+  expiresAt DateTime?
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+
+  @@map("popups")
+}
+
+model Changelog {
+  id          String   @id @default(uuid())
+  version     String
+  title       String
+  description String
+  type        String   @default("UPDATE")
+  publishedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+
+  @@map("changelogs")
+}
+
+// ══════════════════════════════════════
+// BİLDİRİMLER & AYARLAR & LOG
+// ══════════════════════════════════════
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      String   @default("INFO")
+  isRead    Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model SiteSetting {
+  id    String @id @default(uuid())
+  key   String @unique
+  value String
+
+  @@map("site_settings")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   Json?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  user      User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+model EmailTemplate {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  subject   String
+  body      String
+  variables String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("email_templates")
+}
